@@ -1,5 +1,6 @@
 import os
 import torch
+from typing import List
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -33,10 +34,27 @@ Model = AutoModelForCausalLM.from_pretrained(
   config=model_config,
 )
 
+def build_system_prompt(tool_prompts: List[str]) -> str:
+  base = (
+    "You are Qwen2.5 Coder, a highly skilled AI assistant specializing in software development.\n"
+    "Your capabilities include code analysis, explanation, error detection, and suggesting improvements.\n"
+  )
+  tools_section = "TOOLS:\n" + "\n".join(tool_prompts) + "\n\n" if tool_prompts else ""
+  rules_section = (
+      "IMPORTANT RULES:\n"
+      "1. You MUST use the appropriate tool when necessary.\n"
+      "2. You MUST NOT reveal the tool commands to the user.\n"
+      "3. After a tool is used, continue the conversation as if you have direct access to the content.\n"
+      "4. If a file fails to load, inform the user clearly.\n"
+      "5. Do NOT ask for file/URL content directly; use tools.\n"
+      "6. Once you’ve executed [LOAD_FILE ...], you MUST immediately use the loaded content. "
+      "Never say you cannot read it — if you see [LOAD_FILE <path>] then you now *have* it.\n")
+  return base + tools_section + rules_section
+
 print("tokenizing input text...")
 prompt = "write a quick sort algorithm."
 messages = [
-  {"role": "system", "content": "You are a code assistant."},
+  {"role": "system", "content": build_system_prompt([])},
   {"role": "user", "content": prompt}
 ]
 text = Tokenizer.apply_chat_template(
