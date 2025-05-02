@@ -1,4 +1,5 @@
 import os
+import torch
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -7,13 +8,29 @@ DEFAULT_CONFIG = {
   "model_name": "Qwen/Qwen2.5-Coder-3B-Instruct",
   "temperature": 0.1,
   "cache_dir": str(Path(os.environ.get("TRANSFORMERS_CACHE", HOME_DIR / ".cache" / "huggingface"))),
+  "max_context_tokens": 120000,
+  "max_new_tokens": 512,
 }
+
+model_config = {}
+
+if hasattr(torch.nn.functional, "scaled_dot_product_attention"):
+  print("SDPA is available and (hopefully) being used!")
+
+try:
+  import xformers.ops
+  model_config["attention_implementation"] = "flash_attention_2", # Or ""memory_efficient""
+except ImportError:
+  print("xFormers is not available. Using default attention implementation.")
+except Exception as e:
+  print(f"An unexpected error occurred: {e}")  
 
 Tokenizer = AutoTokenizer.from_pretrained(DEFAULT_CONFIG["model_name"], cache_dir=DEFAULT_CONFIG["cache_dir"])
 Model = AutoModelForCausalLM.from_pretrained(
   DEFAULT_CONFIG["model_name"],
   cache_dir=DEFAULT_CONFIG["cache_dir"],
   torch_dtype="auto",
+  config=model_config,
 )
 
 print("tokenizing input text...")
@@ -33,7 +50,7 @@ print("input text tokenized.")
 print("generating text...")
 generated_ids = Model.generate(
   **model_inputs,
-  max_new_tokens=512
+  max_new_tokens=DEFAULT_CONFIG["max_new_tokens"],
 )
 generated_ids = [
   output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
