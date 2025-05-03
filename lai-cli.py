@@ -8,7 +8,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, Bits
 
 HOME_DIR = Path().home()
 DEFAULT_CONFIG = {
-  "model_name": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "model_name": "deepseek-ai/deepseek-coder-1.3b-instruct",
   "temperature": 0.1,
   "cache_dir": str(Path(os.environ.get("TRANSFORMERS_CACHE", HOME_DIR / ".cache" / "huggingface"))),
   "quantization": "8bit",
@@ -18,7 +18,7 @@ DEFAULT_CONFIG = {
 
 def build_system_prompt(tool_prompts: List[str]) -> str:
   base = (
-    "You are Qwen2.5 Coder, a highly skilled AI assistant specializing in software development. Your capabilities include code analysis, explanation, error detection, and suggesting improvements.\n"
+    "You are deepseek Coder, a highly skilled AI assistant specializing in software development. Your capabilities include code analysis, explanation, error detection, and suggesting improvements.\n"
   )
   tools_section = "TOOLS:\n" + "\n".join(tool_prompts) + "\n\n" if tool_prompts else ""
   rules_section = (
@@ -93,6 +93,9 @@ class ChatSession:
       **model_inputs,
       streamer=streamer,
       max_new_tokens=DEFAULT_CONFIG["max_new_tokens"],
+      num_return_sequences=1,
+      eos_token_id=self._tokenizer.eos_token_id,
+      pad_token_id=self._tokenizer.eos_token_id,
     )
 
   def _load_model(self):
