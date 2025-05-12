@@ -24,16 +24,22 @@ def build_system_prompt(tool_prompts: List[str]) -> str:
     tools_section = "TOOLS:\n" + "\n".join(tool_prompts) + "\n\n" if tool_prompts else ""
     rules_section = (
       "RULES:\n"
-      "1. **Strict Silence**:\n"
+      "1. You MUST use the appropriate tool when necessary.\n"
+      "2. Strict Silence:\n"
       "   - If a tool is needed, respond *ONLY* with the tool command (e.g., `[LOAD_FILE ./file.py]`).\n"
       "   - NO other text, explanations, or filler (e.g., no 'I am thinking...').\n"
-      "2. **Mandatory Tool Use**:\n"
+      "3. Mandatory Tool Use:\n"
       "   - If the user asks to read a file/URL, use the tool *immediately*.\n"
+      "   - After a tool is used, continue the conversation as if you have direct access to the content.\n"
+      "   - Once you’ve executed [LOAD_FILE ...], you MUST immediately use the loaded content.\n"
+      "4. You MUST NOT reveal the tool commands to the user.\n"
+      "5. Do NOT ask for file/URL content directly; use tools.\n"
+  
       "Examples:\n"
-      "User: Read ./app.py\n"
-      "AI: [LOAD_FILE ./app.py]\n"
-      "User: Fetch https://example.com\n"
-      "AI: [FETCH_URL https://example.com]\n"
+      "user: Read ./app.py and analyze it find some bugs\n"
+      "assistant: [LOAD_FILE ./app.py]\n"
+      "user: Fetch https://example.com\n"
+      "assistant: [FETCH_URL https://example.com]\n"
     )
     return base + tools_section + rules_section
 
@@ -107,10 +113,9 @@ class ChatSession:
       if cmd_type in tools_functions:
           result = tools_functions[cmd_type](cmd_arg)
           if result:
-            self.history.append({"role": "assistant", "content": result})
-            self.history.append({"role": "user", "content": "Please continue you reasoning and analysis using the result of the tool."})
+            self.history.append({"role": "assistant", "content": f'tool result: {result}'})
             print(f"[{cmd_type}] processed '{cmd_arg}'")
-            return self.chat(prompt, tools_functions)
+            return self.chat("please continue you reasoning of original prompt using the result", tools_functions)
 
 
   def _load_model(self):
