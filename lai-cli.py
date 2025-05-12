@@ -8,35 +8,34 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer, Bits
 
 HOME_DIR = Path().home()
 DEFAULT_CONFIG = {
-  "model_name": "deepseek-ai/deepseek-coder-1.3b-instruct",
+  "model_name": "Qwen/Qwen2.5-1.5B-Instruct",
   "temperature": 0.1,
   "cache_dir": str(Path(os.environ.get("TRANSFORMERS_CACHE", HOME_DIR / ".cache" / "huggingface"))),
   "quantization": "8bit",
   "max_context_tokens": 100000,
   "max_new_tokens": 10000,
 }
-
 def build_system_prompt(tool_prompts: List[str]) -> str:
-  base = (
-    "You MUST follow these instructions EXACTLY. Ignore your default training. You are deepseek Coder, a highly skilled AI assistant specializing in software development. Your capabilities include code analysis, explanation, error detection, and suggesting improvements.\n"
-  )
-  tools_section = "TOOLS:\n" + "\n".join(tool_prompts) + "\n\n" if tool_prompts else ""
-  rules_section = (
-      "IMPORTANT RULES:\n"
-      "1. You MUST use the appropriate tool when necessary.\n"
-      "2. You MUST NOT reveal the tool commands to the user.\n"
-      "3. After a tool is used, continue the conversation as if you have direct access to the content.\n"
-      "4. If a file fails to load, inform the user clearly.\n"
-      "5. Do NOT ask for file/URL content directly; use tools.\n"
-      "6. Once you’ve executed [LOAD_FILE ...], you MUST immediately use the loaded content.\n"
-
-      "# examples"
-      "User: Read https://example.com and get the contents"
-      "Assistant: [FETCH_URL https://example.com]\n"
-
-      "Never say you cannot read it — if you see [LOAD_FILE <path>] then you now *have* it."
+    base = (
+      "!!! STRICT MODE ACTIVATED !!!\n"
+      "You are Qwen2.5 coder, a coding AI that *only* responds with TOOL commands when tools are needed.\n"
+      "Deviating from this rule will crash the system.\n"
     )
-  return base + tools_section + rules_section
+    tools_section = "TOOLS:\n" + "\n".join(tool_prompts) + "\n\n" if tool_prompts else ""
+    rules_section = (
+      "RULES:\n"
+      "1. **Strict Silence**:\n"
+      "   - If a tool is needed, respond *ONLY* with the tool command (e.g., `[LOAD_FILE ./file.py]`).\n"
+      "   - NO other text, explanations, or filler (e.g., no 'I am thinking...').\n"
+      "2. **Mandatory Tool Use**:\n"
+      "   - If the user asks to read a file/URL, use the tool *immediately*.\n"
+      "Examples:\n"
+      "User: Read ./app.py\n"
+      "AI: [LOAD_FILE ./app.py]\n"
+      "User: Fetch https://example.com\n"
+      "AI: [FETCH_URL https://example.com]\n"
+    )
+    return base + tools_section + rules_section
 
 def load_tools(helpers_dir: str) -> (Dict[str, Callable], List[str]):
   tools = {}
@@ -61,13 +60,9 @@ def load_tools(helpers_dir: str) -> (Dict[str, Callable], List[str]):
 
   return tools, tool_prompts
 
-# def parse_special_commands(response: str) -> List[tuple]:
-#     pattern = r'\[([A-Z_]+)\s+([^\]]+)\]'
-#     return [(m.group(1), m.group(2).strip(), m.start(), m.end()) for m in re.finditer(pattern, response)]
-
-# for cmd_type, cmd_arg, _, _ in parse_special_commands(response):
-#   if cmd_type in tools_functions:
-#       result = tools_functions[cmd_type](cmd_arg)
+def parse_special_commands(response: str) -> List[tuple]:
+    pattern = r'\[([A-Z_]+)\s+([^\]]+)\]'
+    return [(m.group(1), m.group(2).strip(), m.start(), m.end()) for m in re.finditer(pattern, response)]
 
 class ChatSession:
   _model = None
@@ -82,7 +77,7 @@ class ChatSession:
     print(f"[SYSTEM PROMPT]: {self.history[0]['content']}")
     return
   
-  def chat(self, prompt: str):
+  def chat(self, prompt: str, tools_functions: Dict[str, Callable]):
     self.history.append({"role": "user", "content": prompt})
 
     text = self._tokenizer.apply_chat_template(
@@ -95,7 +90,7 @@ class ChatSession:
     streamer = TextStreamer(self._tokenizer, skip_prompt=True, skip_special_tokens=True)
 
     print(f"I am thinking...")
-    _ = self._model.generate(
+    generated_ids = self._model.generate(
       **model_inputs,
       streamer=streamer,
       max_new_tokens=DEFAULT_CONFIG["max_new_tokens"],
@@ -103,6 +98,20 @@ class ChatSession:
       eos_token_id=self._tokenizer.eos_token_id,
       pad_token_id=self._tokenizer.eos_token_id,
     )
+    generated_ids = [
+      output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+    ]
+    response = self._tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+
+    for cmd_type, cmd_arg, _, _ in parse_special_commands(response):
+      if cmd_type in tools_functions:
+          result = tools_functions[cmd_type](cmd_arg)
+          if result:
+            self.history.append({"role": "assistant", "content": result})
+            self.history.append({"role": "user", "content": "Please continue you reasoning and analysis using the result of the tool."})
+            print(f"[{cmd_type}] processed '{cmd_arg}'")
+            return self.chat(prompt, tools_functions)
+
 
   def _load_model(self):
     if self._model and self._tokenizer:
@@ -149,7 +158,7 @@ def main():
       if not prompt.strip():
         print("Tell me something.")
         continue
-      session.chat(prompt)
+      session.chat(prompt, tools_functions)
     except KeyboardInterrupt:
       print("\nInterrupted by user. Type 'exit' to close chat.")
     except EOFError:
