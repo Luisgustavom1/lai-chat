@@ -10,7 +10,7 @@ import re
 
 logger = logging.getLogger("qwen_cli.helpers.fetch_url")
 
-def handle_fetch_url(url):
+def handle_fetch_url(url: str):
     """
     Whenever the user asks to read, load, research or consult a URL,
     write this command: `[FETCH_URL url]` (e.g., `[FETCH_URL https://example.com/info.txt]`).
@@ -19,13 +19,12 @@ def handle_fetch_url(url):
     """
     logger.info(f"Fetching URL: {url}")
     
-    # Basic URL validation
+    url = url.strip('"').strip("'")
     if not re.match(r'^https?://', url):
         logger.error(f"Invalid URL format: {url}")
         return None
     
     try:
-        # Set up request with a timeout and user agent
         headers = {
             'User-Agent': 'Mozilla/5.0 Qwen CLI URL Fetcher',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
@@ -33,19 +32,16 @@ def handle_fetch_url(url):
         
         request = urllib.request.Request(url, headers=headers)
         
-        # Fetch the content with a timeout
         with urllib.request.urlopen(request, timeout=10) as response:
             content_type = response.info().get_content_type()
             
-            # Check if content is text-based
-            if 'text' in content_type or 'json' in content_type or 'xml' in content_type:
+            accepted_content_types = ['text', 'json', 'xml']
+            if any(content_type.startswith(ct) for ct in accepted_content_types):
                 content = response.read().decode('utf-8', errors='replace')
                 
-                # Limit content size to prevent context overflow
-                if len(content) > 100000:  # ~100KB limit
+                if len(content) > 100000:
                     content = content[:100000] + "\n\n[Content truncated due to size]"
                 
-                # Format the content for the model
                 formatted_content = f"[URL: {url}]\n```\n{content}\n```"
                 
                 logger.info(f"Successfully fetched URL: {url} ({len(content)} characters)")
